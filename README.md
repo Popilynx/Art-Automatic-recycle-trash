@@ -1,0 +1,1 @@
+# Art-Automatic-recycle-trash-
