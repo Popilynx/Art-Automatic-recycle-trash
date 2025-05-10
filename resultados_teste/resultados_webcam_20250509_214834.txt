@@ -1,0 +1,9 @@
+=== Resultados do Teste de Classificação via Webcam ===
+
+Data/Hora: 09/05/2025 21:48:34
+
+Classificações registradas:
+- papel: 101 (18.3%)
+- metal: 451 (81.7%)
+
+Total de classificações: 552
