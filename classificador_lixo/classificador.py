@@ -2,36 +2,68 @@ import cv2
 import numpy as np
 import os
 import platform
-
-# Importar TensorFlow de acordo com o sistema operacional
-if platform.system().lower() == "linux" and platform.machine() == "aarch64":
-    # Raspberry Pi
-    import tflite_runtime.interpreter as tflite
-else:
-    # Windows/Outros sistemas
-    import tensorflow as tf
-    tflite = tf.lite
+import tensorflow as tf
 
 class ClassificadorLixo:
     def __init__(self, modelo_path='modelo.tflite', labels_path='labels.txt'):
         """Inicializa o classificador"""
+        # Obter o diretório raiz do projeto
+        diretorio_raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        print(f"Diretório raiz do projeto: {diretorio_raiz}")
+        
+        # Construir caminhos absolutos
+        modelo_path = os.path.join(diretorio_raiz, modelo_path)
+        labels_path = os.path.join(diretorio_raiz, labels_path)
+        
+        print(f"Caminho do modelo: {modelo_path}")
+        print(f"Caminho dos labels: {labels_path}")
+        
+        # Verificar se os arquivos existem
         if not os.path.exists(modelo_path):
+            print(f"Erro: Arquivo do modelo não encontrado em: {modelo_path}")
+            print(f"Conteúdo do diretório: {os.listdir(diretorio_raiz)}")
             raise FileNotFoundError(f"Modelo não encontrado: {modelo_path}")
         if not os.path.exists(labels_path):
+            print(f"Erro: Arquivo de labels não encontrado em: {labels_path}")
             raise FileNotFoundError(f"Arquivo de labels não encontrado: {labels_path}")
         
+        print("Arquivos encontrados com sucesso!")
+        
         # Carregar modelo
-        self.interpreter = tflite.Interpreter(model_path=modelo_path)
-        self.interpreter.allocate_tensors()
+        try:
+            print("Tentando carregar o modelo...")
+            self.interpreter = tf.lite.Interpreter(model_path=modelo_path)
+            self.interpreter.allocate_tensors()
+            print("Modelo carregado com sucesso!")
+            
+            # Obter detalhes do modelo
+            self.input_details = self.interpreter.get_input_details()
+            self.output_details = self.interpreter.get_output_details()
+            self.input_shape = self.input_details[0]['shape']
+            print(f"Shape do input do modelo: {self.input_shape}")
+            
+        except Exception as e:
+            print(f"Erro ao carregar o modelo: {str(e)}")
+            print(f"Tipo do erro: {type(e)}")
+            print("Tentando carregar como modelo H5...")
+            try:
+                self.modelo = tf.keras.models.load_model('modelo_classificador.h5')
+                print("Modelo H5 carregado com sucesso!")
+                self.usando_h5 = True
+                self.input_shape = self.modelo.input_shape[1:3]
+                print(f"Shape do input do modelo H5: {self.input_shape}")
+            except Exception as e2:
+                print(f"Erro ao carregar modelo H5: {str(e2)}")
+                raise e
         
         # Carregar labels
-        with open(labels_path, 'r') as f:
-            self.labels = [linha.strip() for linha in f.readlines()]
-        
-        # Obter detalhes do modelo
-        self.input_details = self.interpreter.get_input_details()
-        self.output_details = self.interpreter.get_output_details()
-        self.input_shape = self.input_details[0]['shape']
+        try:
+            with open(labels_path, 'r', encoding='utf-8') as f:
+                self.labels = [linha.strip() for linha in f.readlines()]
+            print(f"Labels carregados: {self.labels}")
+        except Exception as e:
+            print(f"Erro ao carregar os labels: {str(e)}")
+            raise
     
     def detectar_objeto_central(self, frame):
         """Detecta objetos na região central da imagem"""
@@ -80,14 +112,18 @@ class ClassificadorLixo:
         objeto = frame[y:y+h, x:x+w]
         
         # Preparar imagem
-        img_array = cv2.resize(objeto, (self.input_shape[1], self.input_shape[2]))
-        img_array = np.expand_dims(img_array, axis=0)
-        img_array = img_array.astype(np.float32) / 255.0
-        
-        # Fazer predição
-        self.interpreter.set_tensor(self.input_details[0]['index'], img_array)
-        self.interpreter.invoke()
-        predicoes = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
+        if hasattr(self, 'usando_h5') and self.usando_h5:
+            img_array = cv2.resize(objeto, (self.input_shape[0], self.input_shape[1]))
+            img_array = np.expand_dims(img_array, axis=0)
+            img_array = img_array.astype(np.float32) / 255.0
+            predicoes = self.modelo.predict(img_array, verbose=0)[0]
+        else:
+            img_array = cv2.resize(objeto, (self.input_shape[1], self.input_shape[2]))
+            img_array = np.expand_dims(img_array, axis=0)
+            img_array = img_array.astype(np.float32) / 255.0
+            self.interpreter.set_tensor(self.input_details[0]['index'], img_array)
+            self.interpreter.invoke()
+            predicoes = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
         
         # Obter classe e confiança
         classe_idx = np.argmax(predicoes)
